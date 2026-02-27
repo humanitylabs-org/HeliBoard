@@ -11,6 +11,7 @@ import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.WindowManager;
 import android.view.inputmethod.InputConnection;
 
 import androidx.core.content.ContextCompat;
@@ -44,7 +45,7 @@ public class WhisperVoiceInput {
     private static final int CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO;
     private static final int AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
 
-    public enum State { IDLE, RECORDING, PROCESSING }
+    public enum State { IDLE, RECORDING, PROCESSING, FAILED }
 
     public interface Callback {
         void onStateChanged(State state);
@@ -59,6 +60,7 @@ public class WhisperVoiceInput {
     private ByteArrayOutputStream mAudioBuffer;
     private volatile State mState = State.IDLE;
     private Callback mCallback;
+    private byte[] mLastWavData;  // Retained on failure for retry
 
     public WhisperVoiceInput(LatinIME latinIME) {
         mLatinIME = latinIME;
@@ -80,8 +82,16 @@ public class WhisperVoiceInput {
             startRecording();
         } else if (mState == State.RECORDING) {
             stopRecordingAndTranscribe();
+        } else if (mState == State.FAILED && mLastWavData != null) {
+            retryTranscription();
         }
         // If PROCESSING, ignore
+    }
+
+    /** Discard saved audio and return to idle (e.g. user wants to start fresh) */
+    public void dismissFailure() {
+        mLastWavData = null;
+        setState(State.IDLE);
     }
 
     private void startRecording() {
@@ -177,15 +187,61 @@ public class WhisperVoiceInput {
                 String cleaned = result.replace("\n", " ").replace("\r", " ").trim();
                 if (!cleaned.isEmpty()) {
                     final String finalText = cleaned;
+                    mLastWavData = null;  // Success — discard saved audio
                     mHandler.post(() -> insertText(finalText));
                     return;
                 }
             }
 
+            // Keep WAV data for retry
+            mLastWavData = wavData;
+
             final String errorMsg = lastError != null ? lastError.getMessage() : "No speech detected";
             mHandler.post(() -> {
                 if (mCallback != null) mCallback.onError(errorMsg);
-                setState(State.IDLE);
+                setState(State.FAILED);
+            });
+        });
+    }
+
+    private void retryTranscription() {
+        if (mLastWavData == null) {
+            setState(State.IDLE);
+            return;
+        }
+        setState(State.PROCESSING);
+        final byte[] wavData = mLastWavData;
+
+        mExecutor.execute(() -> {
+            String result = null;
+            Exception lastError = null;
+
+            for (int attempt = 0; attempt < 2; attempt++) {
+                try {
+                    if (attempt > 0) Thread.sleep(1000);
+                    result = sendToWhisper(wavData);
+                    if (result != null && !result.isEmpty()) break;
+                } catch (Exception e) {
+                    lastError = e;
+                    Log.e(TAG, "Retry attempt " + (attempt + 1) + " failed", e);
+                }
+            }
+
+            if (result != null && !result.isEmpty()) {
+                String cleaned = result.replace("\n", " ").replace("\r", " ").trim();
+                if (!cleaned.isEmpty()) {
+                    final String finalText = cleaned;
+                    mLastWavData = null;
+                    mHandler.post(() -> insertText(finalText));
+                    return;
+                }
+            }
+
+            // Still failed — keep WAV data for another retry
+            final String errorMsg = lastError != null ? lastError.getMessage() : "No speech detected";
+            mHandler.post(() -> {
+                if (mCallback != null) mCallback.onError(errorMsg);
+                setState(State.FAILED);
             });
         });
     }
@@ -205,7 +261,7 @@ public class WhisperVoiceInput {
         conn.setRequestMethod("POST");
         conn.setDoOutput(true);
         conn.setConnectTimeout(10000);
-        conn.setReadTimeout(60000);
+        conn.setReadTimeout(300000); // 5 min — long recordings can take a while
         conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
 
         try (DataOutputStream out = new DataOutputStream(conn.getOutputStream())) {
@@ -252,53 +308,161 @@ public class WhisperVoiceInput {
     }
 
     private void insertText(String text) {
-        final InputConnection ic = mLatinIME.getCurrentInputConnection();
-        if (ic == null) {
-            setState(State.IDLE);
-            return;
+        Log.i(TAG, "insertText called with: \"" + text + "\"");
+
+        // Whisper returns capitalized text — normalize to lowercase so we control casing
+        if (text.length() > 0) {
+            text = Character.toLowerCase(text.charAt(0)) + text.substring(1);
         }
 
-        // Smart spacing: check if we need a leading space
-        CharSequence before = ic.getTextBeforeCursor(1, 0);
-        boolean needsSpace = before != null && before.length() > 0
-                && !Character.isWhitespace(before.charAt(0))
-                && before.charAt(0) != '\n';
-
-        // Smart capitalization: capitalize if at start of field or after sentence-ending punctuation
-        boolean shouldCapitalize = false;
-        if (before == null || before.length() == 0) {
-            shouldCapitalize = true;
-        } else {
-            CharSequence beforeTwo = ic.getTextBeforeCursor(2, 0);
-            if (beforeTwo != null && beforeTwo.length() >= 1) {
-                char lastChar = beforeTwo.charAt(beforeTwo.length() - 1);
-                if (lastChar == '.' || lastChar == '!' || lastChar == '?' || lastChar == '\n') {
-                    shouldCapitalize = true;
-                }
+        // Strip trailing period from short phrases (≤4 words) — Whisper always adds one
+        if (text.endsWith(".")) {
+            int wordCount = text.trim().split("\\s+").length;
+            if (wordCount <= 4) {
+                text = text.substring(0, text.length() - 1).trim();
             }
         }
 
-        StringBuilder sb = new StringBuilder();
-        if (needsSpace) sb.append(' ');
-        if (shouldCapitalize && text.length() > 0) {
-            sb.append(Character.toUpperCase(text.charAt(0)));
-            if (text.length() > 1) sb.append(text.substring(1));
+        final InputConnection ic = mLatinIME.getCurrentInputConnection();
+
+        if (ic != null) {
+            CharSequence before = ic.getTextBeforeCursor(50, 0);
+            CharSequence after = ic.getTextAfterCursor(50, 0);
+
+            // --- Smart leading space ---
+            // If cursor is right after a word character (no space between), prepend space
+            if (before != null && before.length() > 0) {
+                char lastBefore = before.charAt(before.length() - 1);
+                if (Character.isLetterOrDigit(lastBefore) || lastBefore == ')' || lastBefore == '"') {
+                    text = " " + text;
+                }
+            }
+
+            // --- Context-aware capitalization ---
+            text = adjustCapitalization(before != null ? before.toString() : null, text);
+
+            // --- Smart trailing space ---
+            // Add trailing space after insertion, but not if next char is space/punctuation
+            boolean addTrailingSpace = true;
+            if (after != null && after.length() > 0) {
+                char nextChar = after.charAt(0);
+                if (nextChar == ' ' || nextChar == '.' || nextChar == ','
+                        || nextChar == '!' || nextChar == '?' || nextChar == ';'
+                        || nextChar == ':' || nextChar == ')') {
+                    addTrailingSpace = false;
+                }
+            }
+            // Don't add trailing space if text already ends with space or punctuation
+            if (text.length() > 0) {
+                char lastChar = text.charAt(text.length() - 1);
+                if (lastChar == ' ' || lastChar == '.' || lastChar == '!' || lastChar == '?') {
+                    addTrailingSpace = false;
+                }
+            }
+            // If inserting mid-word (next char is a letter), add space to separate
+            if (after != null && after.length() > 0 && Character.isLetterOrDigit(after.charAt(0))) {
+                text = text + " ";
+                addTrailingSpace = false;
+            }
         } else {
-            sb.append(text);
+            // No InputConnection — capitalize first letter
+            text = capitalizeFirst(text);
         }
 
-        ic.beginBatchEdit();
-        ic.commitText(sb.toString(), 1);
-        ic.endBatchEdit();
-
+        // Use LatinIME's onTextInput which handles InputConnection properly
+        try {
+            Log.i(TAG, "Inserting cleaned text: \"" + text + "\"");
+            mLatinIME.onTextInput(text);
+        } catch (Exception e) {
+            Log.e(TAG, "Error inserting text", e);
+            if (mCallback != null) mCallback.onError("Failed to insert text");
+        }
         setState(State.IDLE);
+    }
+
+    /**
+     * Context-aware capitalization matching VoiceMic logic.
+     * Capitalizes after sentence-ending punctuation, newlines, bullet markers.
+     * Forces lowercase mid-sentence.
+     */
+    private String adjustCapitalization(String before, String text) {
+        if (text == null || text.isEmpty()) return text;
+
+        boolean shouldCapitalize = false;
+
+        if (before == null || before.isEmpty()) {
+            shouldCapitalize = true; // Start of field
+        } else {
+            // Find last non-space character
+            int lookBack = before.length() - 1;
+            while (lookBack >= 0 && before.charAt(lookBack) == ' ') lookBack--;
+
+            if (lookBack < 0) {
+                shouldCapitalize = true; // Only spaces before cursor
+            } else {
+                char lastChar = before.charAt(lookBack);
+                shouldCapitalize = (lastChar == '.' || lastChar == '!' || lastChar == '?'
+                        || lastChar == '\n' || lastChar == '\r'
+                        || lastChar == '-' || lastChar == '*' || lastChar == '•');
+            }
+        }
+
+        // Find first letter in text (not just first char — handles leading spaces/punctuation)
+        int firstLetter = -1;
+        for (int i = 0; i < text.length(); i++) {
+            if (Character.isLetter(text.charAt(i))) {
+                firstLetter = i;
+                break;
+            }
+        }
+        if (firstLetter < 0) return text;
+
+        char c = text.charAt(firstLetter);
+        if (shouldCapitalize && Character.isLowerCase(c)) {
+            return text.substring(0, firstLetter) + Character.toUpperCase(c) + text.substring(firstLetter + 1);
+        } else if (!shouldCapitalize && Character.isUpperCase(c)) {
+            return text.substring(0, firstLetter) + Character.toLowerCase(c) + text.substring(firstLetter + 1);
+        }
+        return text;
+    }
+
+    private String capitalizeFirst(String text) {
+        if (text == null || text.isEmpty()) return text;
+        for (int i = 0; i < text.length(); i++) {
+            if (Character.isLetter(text.charAt(i))) {
+                if (Character.isLowerCase(text.charAt(i))) {
+                    return text.substring(0, i) + Character.toUpperCase(text.charAt(i)) + text.substring(i + 1);
+                }
+                break;
+            }
+        }
+        return text;
     }
 
     private void setState(State state) {
         mState = state;
+        // Keep screen on while recording or processing
+        setKeepScreenOn(state == State.RECORDING || state == State.PROCESSING);
         if (mCallback != null) {
             mHandler.post(() -> mCallback.onStateChanged(state));
         }
+    }
+
+    private void setKeepScreenOn(boolean on) {
+        mHandler.post(() -> {
+            try {
+                android.view.Window window = mLatinIME.getWindow().getWindow();
+                if (window != null) {
+                    if (on) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    } else {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Could not set keep screen on", e);
+            }
+        });
     }
 
     /**
@@ -315,6 +479,22 @@ public class WhisperVoiceInput {
             mAudioRecord = null;
         }
         setState(State.IDLE);
+    }
+
+    private void saveAudioForRecovery(byte[] wavData) {
+        try {
+            java.io.File dir = new java.io.File(mLatinIME.getFilesDir(), "voice_recovery");
+            if (!dir.exists()) dir.mkdirs();
+            String filename = "voice_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss",
+                    java.util.Locale.US).format(new java.util.Date()) + ".wav";
+            java.io.File file = new java.io.File(dir, filename);
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(file);
+            fos.write(wavData);
+            fos.close();
+            Log.i(TAG, "Saved recovery audio: " + file.getAbsolutePath());
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to save recovery audio", e);
+        }
     }
 
     private static byte[] pcmToWav(byte[] pcmData) {

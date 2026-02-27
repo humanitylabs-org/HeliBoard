@@ -546,6 +546,135 @@ class SuggestionStripView(context: Context, attrs: AttributeSet?, defStyle: Int)
         colors.setBackground(view, ColorType.STRIP_BACKGROUND)
     }
 
+    private var voiceKeyAnimator: android.animation.ObjectAnimator? = null
+
+    private var processingSpinner: android.widget.ProgressBar? = null
+
+    /** Set the voice key visual state for Whisper recording/processing feedback */
+    fun setVoiceKeyState(state: Int) {
+        // state: 0 = idle, 1 = recording, 2 = processing, 3 = failed
+        val voiceKeys = listOf(
+            toolbar.findViewWithTag<ImageButton>(ToolbarKey.VOICE),
+            pinnedKeys.findViewWithTag<ImageButton>(ToolbarKey.VOICE)
+        ).filterNotNull()
+
+        voiceKeyAnimator?.cancel()
+        voiceKeyAnimator = null
+        removeProcessingSpinner()
+
+        for (key in voiceKeys) {
+            when (state) {
+                1 -> { // Recording - red tint + pulse
+                    key.setColorFilter(0xFFE53935.toInt(), android.graphics.PorterDuff.Mode.SRC_IN)
+                    key.visibility = android.view.View.VISIBLE
+                    voiceKeyAnimator = android.animation.ObjectAnimator.ofFloat(key, "alpha", 1f, 0.3f).apply {
+                        duration = 600
+                        repeatMode = android.animation.ObjectAnimator.REVERSE
+                        repeatCount = android.animation.ObjectAnimator.INFINITE
+                        start()
+                    }
+                }
+                2 -> { // Processing - hide mic, show spinner
+                    key.clearColorFilter()
+                    key.alpha = 1f
+                    key.visibility = android.view.View.INVISIBLE
+                    showProcessingSpinner(key)
+                }
+                3 -> { // Failed - steady red, slow blink (tap to retry)
+                    key.visibility = android.view.View.VISIBLE
+                    key.setColorFilter(0xFFE53935.toInt(), android.graphics.PorterDuff.Mode.SRC_IN)
+                    voiceKeyAnimator = android.animation.ObjectAnimator.ofFloat(key, "alpha", 1f, 0.5f).apply {
+                        duration = 1500
+                        repeatMode = android.animation.ObjectAnimator.REVERSE
+                        repeatCount = android.animation.ObjectAnimator.INFINITE
+                        start()
+                    }
+                }
+                else -> { // Idle - restore
+                    key.visibility = android.view.View.VISIBLE
+                    key.clearColorFilter()
+                    key.alpha = 1f
+                    key.rotation = 0f
+                    val colors = Settings.getValues().mColors
+                    colors.setColor(key, ColorType.TOOL_BAR_KEY)
+                }
+            }
+        }
+    }
+
+    private fun showProcessingSpinner(anchorKey: android.view.View) {
+        val size = Math.min(anchorKey.width, anchorKey.height) * 2 / 3
+        val spinner = android.widget.ProgressBar(context, null, android.R.attr.progressBarStyleSmall).apply {
+            indeterminateTintList = android.content.res.ColorStateList.valueOf(0xFFFFA726.toInt())
+        }
+        val wrapper = android.widget.FrameLayout(context).apply {
+            addView(spinner, android.widget.FrameLayout.LayoutParams(size, size, android.view.Gravity.CENTER))
+        }
+
+        val popup = android.widget.PopupWindow(wrapper, anchorKey.width, anchorKey.height, false).apply {
+            isClippingEnabled = false
+            isTouchable = false
+        }
+        popup.showAsDropDown(anchorKey, 0, -anchorKey.height)
+        processingPopup = popup
+    }
+
+    private var processingPopup: android.widget.PopupWindow? = null
+
+    private fun removeProcessingSpinner() {
+        processingPopup?.dismiss()
+        processingPopup = null
+        processingSpinner = null
+    }
+
+    private var aiCleanupAnimator: android.animation.ObjectAnimator? = null
+    private var aiCleanupPopup: android.widget.PopupWindow? = null
+
+    /** Set the AI cleanup key visual state */
+    fun setAiCleanupState(state: Int) {
+        val aiKeys = listOf(
+            toolbar.findViewWithTag<ImageButton>(ToolbarKey.AI_CLEANUP),
+            pinnedKeys.findViewWithTag<ImageButton>(ToolbarKey.AI_CLEANUP)
+        ).filterNotNull()
+
+        aiCleanupAnimator?.cancel()
+        aiCleanupAnimator = null
+        aiCleanupPopup?.dismiss()
+        aiCleanupPopup = null
+
+        for (key in aiKeys) {
+            when (state) {
+                2 -> { // Processing - hide icon, show spinner
+                    key.visibility = android.view.View.INVISIBLE
+                    val size = Math.min(key.width, key.height) * 2 / 3
+                    val spinner = android.widget.ProgressBar(context, null, android.R.attr.progressBarStyleSmall).apply {
+                        indeterminateTintList = android.content.res.ColorStateList.valueOf(0xFFFFA726.toInt())
+                    }
+                    val wrapper = android.widget.FrameLayout(context).apply {
+                        addView(spinner, android.widget.FrameLayout.LayoutParams(size, size, android.view.Gravity.CENTER))
+                    }
+                    val popup = android.widget.PopupWindow(wrapper, key.width, key.height, false).apply {
+                        isClippingEnabled = false
+                        isTouchable = false
+                    }
+                    popup.showAsDropDown(key, 0, -key.height)
+                    aiCleanupPopup = popup
+                }
+                3 -> { // Error - red flash
+                    key.visibility = android.view.View.VISIBLE
+                    key.setColorFilter(0xFFE53935.toInt(), android.graphics.PorterDuff.Mode.SRC_IN)
+                }
+                else -> { // Idle - restore
+                    key.visibility = android.view.View.VISIBLE
+                    key.clearColorFilter()
+                    key.alpha = 1f
+                    val colors = Settings.getValues().mColors
+                    colors.setColor(key, ColorType.TOOL_BAR_KEY)
+                }
+            }
+        }
+    }
+
     companion object {
         @JvmField
         var DEBUG_SUGGESTIONS = false

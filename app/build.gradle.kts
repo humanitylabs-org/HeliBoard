@@ -14,7 +14,7 @@ android {
         applicationId = "org.humanitylabs.keyboard"
         minSdk = 21
         targetSdk = 35
-        versionCode = 3702
+        versionCode = 3724
         versionName = "3.7-beta1-whisper1"
         ndk {
             abiFilters.clear()
@@ -23,12 +23,22 @@ android {
         proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("/Users/thales/development/voicemic/release-keystore.jks")
+            storePassword = "voicemic2026"
+            keyAlias = "voicemic"
+            keyPassword = "voicemic2026"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = false
             isDebuggable = false
             isJniDebuggable = false
+            signingConfig = signingConfigs.getByName("release")
         }
         create("nouserlib") { // same as release, but does not allow the user to provide a library
             isMinifyEnabled = true

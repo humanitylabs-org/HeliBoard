@@ -76,6 +76,9 @@ public final class Settings implements SharedPreferences.OnSharedPreferenceChang
     public static final String PREF_WHISPER_VOICE_INPUT = "whisper_voice_input";
     public static final String PREF_WHISPER_SERVER_URL = "whisper_server_url";
     public static final String PREF_WHISPER_LANGUAGE = "whisper_language";
+    public static final String PREF_AI_CLEANUP = "ai_cleanup";
+    public static final String PREF_AI_CLEANUP_SERVER_URL = "ai_cleanup_server_url";
+    public static final String PREF_AI_CLEANUP_MODEL = "ai_cleanup_model";
     public static final String PREF_SHOW_EMOJI_DESCRIPTIONS = "show_emoji_descriptions";
     public static final String PREF_POPUP_ON = "popup_on";
     public static final String PREF_AUTO_CORRECTION = "auto_correction";
@@ -83,6 +86,7 @@ public final class Settings implements SharedPreferences.OnSharedPreferenceChang
     public static final String PREF_AUTO_CORRECT_THRESHOLD = "auto_correct_threshold";
     public static final String PREF_AUTOCORRECT_SHORTCUTS = "autocorrect_shortcuts";
     public static final String PREF_BACKSPACE_REVERTS_AUTOCORRECT = "backspace_reverts_autocorrect";
+    public static final String PREF_DELETE_WHOLE_WORDS = "delete_whole_words";
     public static final String PREF_CENTER_SUGGESTION_TEXT_TO_ENTER = "center_suggestion_text_to_enter";
     public static final String PREF_SHOW_SUGGESTIONS = "show_suggestions";
     public static final String PREF_ALWAYS_SHOW_SUGGESTIONS = "always_show_suggestions";

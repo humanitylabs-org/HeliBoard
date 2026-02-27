@@ -141,6 +141,7 @@ public class LatinIME extends InputMethodService implements
 
     private RichInputMethodManager mRichImm;
     private WhisperVoiceInput mWhisperVoiceInput;
+    private AiCleanup mAiCleanup;
     final KeyboardSwitcher mKeyboardSwitcher;
     private final SubtypeState mSubtypeState = new SubtypeState((InputMethodSubtype subtype) -> { switchToSubtype(subtype); return Unit.INSTANCE; });
     private final StatsUtilsManager mStatsUtilsManager;
@@ -1400,6 +1401,10 @@ public class LatinIME extends InputMethodService implements
             }
             mRichImm.switchToShortcutIme(this);
         }
+        if (KeyCode.AI_CLEANUP == event.getKeyCode()) {
+            handleAiCleanup();
+            return;
+        }
         final InputTransaction completeInputTransaction =
                 mInputLogic.onCodeInput(mSettings.getCurrent(), event,
                         mKeyboardSwitcher.getKeyboardShiftMode(),
@@ -1648,14 +1653,19 @@ public class LatinIME extends InputMethodService implements
             }
             // TODO: Use event time that the last feedback has been generated instead of relying on
             // a repeat count to thin out feedback.
-            if (repeatCount % PERIOD_FOR_AUDIO_AND_HAPTIC_FEEDBACK_IN_KEY_REPEAT == 0) {
+            // Don't thin out feedback for delete key when deleting whole words.
+            final boolean deleteWholeWords = Settings.getValues() != null && Settings.getValues().mDeleteWholeWords;
+            if (!(code == KeyCode.DELETE && deleteWholeWords)
+                    && repeatCount % PERIOD_FOR_AUDIO_AND_HAPTIC_FEEDBACK_IN_KEY_REPEAT == 0) {
                 return;
             }
         }
         final AudioAndHapticFeedbackManager feedbackManager =
                 AudioAndHapticFeedbackManager.getInstance();
         if (repeatCount == 0) {
-            // TODO: Reconsider how to perform haptic feedback when repeating key.
+            feedbackManager.performHapticFeedback(keyboardView, hapticEvent);
+        } else if (code == KeyCode.DELETE && Settings.getValues() != null && Settings.getValues().mDeleteWholeWords) {
+            // Vibrate on every backspace repeat when deleting whole words
             feedbackManager.performHapticFeedback(keyboardView, hapticEvent);
         }
         feedbackManager.performAudioFeedback(code, hapticEvent);
@@ -1856,32 +1866,85 @@ public class LatinIME extends InputMethodService implements
     }
 
     private void handleWhisperVoiceInput() {
+        // Check and request RECORD_AUDIO permission if needed
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            // Launch settings activity to request permission
+            try {
+                android.content.Intent intent = new android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                intent.setData(android.net.Uri.fromParts("package", getPackageName(), null));
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+                mKeyboardSwitcher.showFakeToast("Please grant microphone permission", false);
+                new Handler(Looper.getMainLooper()).postDelayed(() ->
+                    mKeyboardSwitcher.dismissFakeToast(), 4000);
+            } catch (Exception e) {
+                Log.e(TAG, "Could not open app settings", e);
+            }
+            return;
+        }
         if (mWhisperVoiceInput == null) {
             mWhisperVoiceInput = new WhisperVoiceInput(this);
             mWhisperVoiceInput.setCallback(new WhisperVoiceInput.Callback() {
                 @Override
                 public void onStateChanged(WhisperVoiceInput.State state) {
-                    switch (state) {
-                        case RECORDING:
-                            mKeyboardSwitcher.showFakeToast("● Recording...", true);
-                            break;
-                        case PROCESSING:
-                            mKeyboardSwitcher.showFakeToast("Transcribing...", true);
-                            break;
-                        case IDLE:
-                            mKeyboardSwitcher.dismissFakeToast();
-                            break;
+                    if (mSuggestionStripView != null) {
+                        switch (state) {
+                            case RECORDING:
+                                mSuggestionStripView.setVoiceKeyState(1);
+                                break;
+                            case PROCESSING:
+                                mSuggestionStripView.setVoiceKeyState(2);
+                                break;
+                            case FAILED:
+                                mSuggestionStripView.setVoiceKeyState(3); // retry indicator
+                                break;
+                            case IDLE:
+                                mSuggestionStripView.setVoiceKeyState(0);
+                                break;
+                        }
                     }
                 }
 
                 @Override
                 public void onError(String message) {
-                    mKeyboardSwitcher.showFakeToast("Error: " + message, false);
-                    new Handler(Looper.getMainLooper()).postDelayed(() ->
-                        mKeyboardSwitcher.dismissFakeToast(), 2000);
+                    Log.e(TAG, "WhisperVoiceInput error: " + message);
                 }
             });
         }
         mWhisperVoiceInput.toggle();
+    }
+
+    private void handleAiCleanup() {
+        if (mAiCleanup == null) {
+            mAiCleanup = new AiCleanup(this);
+            mAiCleanup.setCallback(new AiCleanup.Callback() {
+                @Override
+                public void onStateChanged(AiCleanup.State state) {
+                    if (mSuggestionStripView != null) {
+                        switch (state) {
+                            case PROCESSING:
+                                mSuggestionStripView.setAiCleanupState(2); // spinner
+                                break;
+                            case IDLE:
+                                mSuggestionStripView.setAiCleanupState(0);
+                                break;
+                        }
+                    }
+                }
+
+                @Override
+                public void onError(String message) {
+                    Log.e(TAG, "AiCleanup error: " + message);
+                    if (mSuggestionStripView != null) {
+                        mSuggestionStripView.setAiCleanupState(3); // error flash
+                        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                            if (mSuggestionStripView != null) mSuggestionStripView.setAiCleanupState(0);
+                        }, 2000);
+                    }
+                }
+            });
+        }
+        mAiCleanup.cleanup();
     }
 }

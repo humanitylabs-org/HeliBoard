@@ -67,6 +67,7 @@ fun TextCorrectionScreen(
         if (autocorrectEnabled) Settings.PREF_AUTOCORRECT_SHORTCUTS else null,
         if (autocorrectEnabled) Settings.PREF_AUTO_CORRECT_THRESHOLD else null,
         if (autocorrectEnabled) Settings.PREF_BACKSPACE_REVERTS_AUTOCORRECT else null,
+        Settings.PREF_DELETE_WHOLE_WORDS,
         Settings.PREF_AUTO_CAP,
         R.string.settings_category_space,
         Settings.PREF_KEY_USE_DOUBLE_SPACE_PERIOD,
@@ -97,6 +98,12 @@ fun TextCorrectionScreen(
             Settings.PREF_WHISPER_SERVER_URL else null,
         if (prefs.getBoolean(Settings.PREF_WHISPER_VOICE_INPUT, Defaults.PREF_WHISPER_VOICE_INPUT))
             Settings.PREF_WHISPER_LANGUAGE else null,
+        R.string.settings_category_ai_cleanup,
+        Settings.PREF_AI_CLEANUP,
+        if (prefs.getBoolean(Settings.PREF_AI_CLEANUP, Defaults.PREF_AI_CLEANUP))
+            Settings.PREF_AI_CLEANUP_SERVER_URL else null,
+        if (prefs.getBoolean(Settings.PREF_AI_CLEANUP, Defaults.PREF_AI_CLEANUP))
+            Settings.PREF_AI_CLEANUP_MODEL else null,
     )
     SearchSettingsScreen(
         onClickBack = onClickBack,
@@ -143,6 +150,11 @@ fun createCorrectionSettings(context: Context) = listOf(
     },
     Setting(context, Settings.PREF_BACKSPACE_REVERTS_AUTOCORRECT, R.string.backspace_reverts_autocorrect) {
         SwitchPreference(it, Defaults.PREF_BACKSPACE_REVERTS_AUTOCORRECT)
+    },
+    Setting(context, Settings.PREF_DELETE_WHOLE_WORDS,
+        R.string.delete_whole_words, R.string.delete_whole_words_summary
+    ) {
+        SwitchPreference(it, Defaults.PREF_DELETE_WHOLE_WORDS)
     },
     Setting(context, Settings.PREF_AUTO_CAP,
         R.string.auto_cap, R.string.auto_cap_summary
@@ -281,6 +293,21 @@ fun createCorrectionSettings(context: Context) = listOf(
         R.string.whisper_language, R.string.whisper_language_summary
     ) {
         TextInputPreference(it, Defaults.PREF_WHISPER_LANGUAGE)
+    },
+    Setting(context, Settings.PREF_AI_CLEANUP,
+        R.string.ai_cleanup, R.string.ai_cleanup_summary
+    ) {
+        SwitchPreference(it, Defaults.PREF_AI_CLEANUP)
+    },
+    Setting(context, Settings.PREF_AI_CLEANUP_SERVER_URL,
+        R.string.ai_cleanup_server_url, R.string.ai_cleanup_server_url_summary
+    ) {
+        TextInputPreference(it, Defaults.PREF_AI_CLEANUP_SERVER_URL)
+    },
+    Setting(context, Settings.PREF_AI_CLEANUP_MODEL,
+        R.string.ai_cleanup_model, R.string.ai_cleanup_model_summary
+    ) {
+        TextInputPreference(it, Defaults.PREF_AI_CLEANUP_MODEL)
     },
 )
 

@@ -72,6 +72,14 @@
     <string name="whisper_language">Language</string>
     <!-- Summary for Whisper language setting -->
     <string name="whisper_language_summary">Speech recognition language code (e.g. en, de, fr)</string>
+    <!-- AI Cleanup settings -->
+    <string name="settings_category_ai_cleanup">AI cleanup</string>
+    <string name="ai_cleanup">Enable AI cleanup</string>
+    <string name="ai_cleanup_summary">Clean up text with AI — fix punctuation, grammar, and formatting</string>
+    <string name="ai_cleanup_server_url">Server URL</string>
+    <string name="ai_cleanup_server_url_summary">Ollama server address (e.g. http://192.168.1.100:11434)</string>
+    <string name="ai_cleanup_model">Model</string>
+    <string name="ai_cleanup_model_summary">Ollama model name for text cleanup</string>
     <!-- Settings category title for Appearance & Layout/Misc -->
     <string name="settings_category_miscellaneous">Miscellaneous</string>
     <!--  Option for enabling or disabling the split keyboard layout in portrait mode.-->
@@ -160,6 +168,8 @@
     <string name="auto_correct_shortcuts_summary">When enabled shortcuts might be expanded by autocorrect</string>
     <!-- Option to undo auto correction with backspace -->
     <string name="backspace_reverts_autocorrect">Backspace reverts autocorrect</string>
+    <string name="delete_whole_words">Hold backspace deletes whole words</string>
+    <string name="delete_whole_words_summary">When holding the backspace key, delete entire words instead of individual characters</string>
     <!-- Option to disable auto correction. -->
     <string name="auto_correction_threshold_mode_off">Off</string> <!-- todo: use it or remove it -->
     <!-- Option to suggest auto correction suggestions modestly. Auto-corrects only to a word which has small edit distance from typed word. -->
