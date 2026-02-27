@@ -14,3 +14,4 @@ fastlane/Appfile
 tools/*.txt
 heliboard-word-delete.apk
 *.idsig
+*.apk
