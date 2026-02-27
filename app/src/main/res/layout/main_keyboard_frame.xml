@@ -16,6 +16,46 @@
         android:id="@+id/strip_container"
         layout="@layout/strip_container" />
 
+    <!-- Emoji search panel: search bar + results grid, shown between strip and keyboard -->
+    <LinearLayout
+        android:id="@+id/emoji_search_panel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone">
+        <!-- Search bar row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="4dp"
+            android:paddingEnd="8dp">
+            <ImageView
+                android:id="@+id/emoji_search_panel_back"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:scaleType="center"
+                android:src="@drawable/ic_arrow_back"
+                android:contentDescription="@string/spoken_description_action_previous" />
+            <TextView
+                android:id="@+id/emoji_search_panel_text"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:gravity="center_vertical"
+                android:hint="@string/search_field_placeholder"
+                android:textSize="16sp"
+                android:singleLine="true" />
+        </LinearLayout>
+        <!-- Emoji results container -->
+        <FrameLayout
+            android:id="@+id/emoji_search_panel_results"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+    </LinearLayout>
+
     <!-- To ensure that key preview popup is correctly placed when the current system locale is
          one of RTL locales, layoutDirection="ltr" is needed in the SDK version 17+. -->
     <helium314.keyboard.latin.KeyboardWrapperView

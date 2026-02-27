@@ -1392,6 +1392,13 @@ public class LatinIME extends InputMethodService implements
         if (KeyCode.VOICE_INPUT == event.getKeyCode()) {
             mRichImm.switchToShortcutIme(this);
         }
+        // Intercept keystrokes when in emoji search mode
+        if (mKeyboardSwitcher.isEmojiSearchMode() && mKeyboardSwitcher.getEmojiSearchPanel() != null) {
+            final int code = event.getCodePoint() != Event.NOT_A_CODE_POINT ? event.getCodePoint() : event.getKeyCode();
+            if (mKeyboardSwitcher.getEmojiSearchPanel().onCodeInput(code)) {
+                return;
+            }
+        }
         final InputTransaction completeInputTransaction =
                 mInputLogic.onCodeInput(mSettings.getCurrent(), event,
                         mKeyboardSwitcher.getKeyboardShiftMode(),
@@ -1401,6 +1408,15 @@ public class LatinIME extends InputMethodService implements
     }
 
     public void onTextInput(final String rawText) {
+        // In emoji search mode, treat text input as search characters
+        if (mKeyboardSwitcher.isEmojiSearchMode() && mKeyboardSwitcher.getEmojiSearchPanel() != null) {
+            for (int i = 0; i < rawText.length(); ) {
+                final int cp = rawText.codePointAt(i);
+                mKeyboardSwitcher.getEmojiSearchPanel().onCodeInput(cp);
+                i += Character.charCount(cp);
+            }
+            return;
+        }
         // TODO: have the keyboard pass the correct key code when we need it.
         final Event event = Event.createSoftwareTextEvent(rawText, KeyCode.MULTIPLE_CODE_POINTS, null);
         final InputTransaction completeInputTransaction =

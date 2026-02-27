@@ -15,6 +15,42 @@
     android:background="@android:color/transparent"
     style="?attr/emojiPalettesViewStyle"
 >
+    <!-- Search bar (hidden by default, shown when search icon tapped) -->
+    <LinearLayout
+        android:id="@+id/emoji_search_bar"
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:visibility="gone">
+        <ImageView
+            android:id="@+id/emoji_search_back"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:scaleType="center"
+            android:src="@drawable/ic_arrow_back"
+            android:contentDescription="@string/spoken_description_action_previous" />
+        <EditText
+            android:id="@+id/emoji_search_input"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:hint="@string/search_field_placeholder"
+            android:inputType="text"
+            android:imeOptions="flagNoExtractUi"
+            android:singleLine="true"
+            android:background="@android:color/transparent"
+            android:textSize="14sp" />
+    </LinearLayout>
+    <!-- Search results container (hidden by default, populated programmatically) -->
+    <FrameLayout
+        android:id="@+id/emoji_search_results_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
     <androidx.viewpager2.widget.ViewPager2
         android:id="@+id/emoji_pager"
         android:layout_width="match_parent"

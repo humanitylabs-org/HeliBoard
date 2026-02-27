@@ -11,13 +11,18 @@ import java.util.Map;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.AttributeSet;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
+import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 
@@ -41,8 +46,12 @@ import helium314.keyboard.keyboard.internal.KeyVisualAttributes;
 import helium314.keyboard.keyboard.internal.keyboard_parser.EmojiParserKt;
 import helium314.keyboard.keyboard.internal.keyboard_parser.floris.KeyCode;
 import helium314.keyboard.latin.AudioAndHapticFeedbackManager;
+import java.util.Arrays;
 import helium314.keyboard.latin.dictionary.Dictionary;
 import helium314.keyboard.latin.dictionary.DictionaryFactory;
+import helium314.keyboard.keyboard.internal.KeyboardBuilder;
+import helium314.keyboard.keyboard.internal.KeyboardParams;
+import helium314.keyboard.keyboard.internal.keyboard_parser.EmojiParserKt;
 import helium314.keyboard.latin.R;
 import helium314.keyboard.latin.RichInputMethodManager;
 import helium314.keyboard.latin.RichInputMethodSubtype;
@@ -197,6 +206,14 @@ public final class EmojiPalettesView extends LinearLayout
     private KeyboardActionListener mKeyboardActionListener = KeyboardActionListener.EMPTY_LISTENER;
     private final EmojiCategory mEmojiCategory;
     private ViewPager2 mPager;
+    
+    // Search
+    private LinearLayout mSearchBar;
+    private EditText mSearchInput;
+    private FrameLayout mSearchResultsContainer;
+    private EmojiPageKeyboardView mSearchResultsView;
+    private DynamicGridKeyboard mSearchKeyboard;
+    private boolean mSearchMode = false;
 
     public EmojiPalettesView(final Context context, final AttributeSet attrs) {
         this(context, attrs, R.attr.emojiPalettesViewStyle);
@@ -251,6 +268,17 @@ public final class EmojiPalettesView extends LinearLayout
         mEmojiCategory.initialize();
         mTabStrip = (LinearLayout) KeyboardSwitcher.getInstance().getEmojiTabStrip();
         if (Settings.getValues().mSecondaryStripVisible) {
+            // Add search icon as first tab
+            final ImageView searchIcon = new ImageView(getContext());
+            mColors.setBackground(searchIcon, ColorType.STRIP_BACKGROUND);
+            mColors.setColor(searchIcon, ColorType.EMOJI_CATEGORY);
+            searchIcon.setScaleType(ImageView.ScaleType.CENTER);
+            searchIcon.setImageResource(R.drawable.sym_keyboard_search_holo);
+            searchIcon.setContentDescription("Search emojis");
+            searchIcon.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+            searchIcon.setOnClickListener(v -> enterSearchMode());
+            mTabStrip.addView(searchIcon, 0);
+
             for (final EmojiCategory.CategoryProperties properties : mEmojiCategory.getShownCategories()) {
                 addTab(mTabStrip, properties.mCategoryId);
             }
@@ -263,7 +291,79 @@ public final class EmojiPalettesView extends LinearLayout
         mEmojiLayoutParams.setCategoryPageIdViewProperties(mEmojiCategoryPageIndicatorView);
         setCurrentCategoryId(mEmojiCategory.getCurrentCategoryId(), true);
         mEmojiCategoryPageIndicatorView.setColors(mColors.get(ColorType.EMOJI_CATEGORY_SELECTED), mColors.get(ColorType.STRIP_BACKGROUND));
+
+        // Set up search bar
+        mSearchBar = findViewById(R.id.emoji_search_bar);
+        mSearchInput = findViewById(R.id.emoji_search_input);
+        mSearchResultsContainer = findViewById(R.id.emoji_search_results_container);
+        
+        mColors.setBackground(mSearchBar, ColorType.STRIP_BACKGROUND);
+        mSearchInput.setTextColor(mColors.get(ColorType.KEY_TEXT));
+        mSearchInput.setHintTextColor(mColors.get(ColorType.KEY_HINT_TEXT));
+        
+        final ImageView searchBack = findViewById(R.id.emoji_search_back);
+        mColors.setColor(searchBack, ColorType.EMOJI_CATEGORY);
+        searchBack.setOnClickListener(v -> exitSearchMode());
+        
+        mSearchInput.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            @Override
+            public void afterTextChanged(Editable s) {
+                performEmojiSearch(s.toString());
+            }
+        });
+
         initialized = true;
+    }
+    
+    private void enterSearchMode() {
+        // Delegate to inline emoji search panel in KeyboardSwitcher
+        KeyboardSwitcher.getInstance().setEmojiSearchKeyboard();
+    }
+    
+    private void exitSearchMode() {
+        mSearchMode = false;
+        mSearchBar.setVisibility(GONE);
+        mTabStrip.setVisibility(VISIBLE);
+        mPager.setVisibility(VISIBLE);
+        mEmojiCategoryPageIndicatorView.setVisibility(VISIBLE);
+        mSearchResultsContainer.setVisibility(GONE);
+        mSearchInput.setText("");
+    }
+    
+    private void performEmojiSearch(String query) {
+        if (mSearchKeyboard == null || sDictionaryFacilitator == null) return;
+        
+        mSearchKeyboard.removeAllKeys();
+        
+        if (query.isEmpty()) {
+            mSearchResultsView.invalidate();
+            return;
+        }
+        
+        final KeyboardBuilder<?> builder = new KeyboardBuilder<>(getContext(), new KeyboardParams());
+        builder.load(mSearchKeyboard.mId);
+        final KeyboardParams keyboardParams = builder.mParams;
+        final kotlin.Pair<Float, Float> dims = EmojiParserKt.getEmojiKeyDimensions(keyboardParams, getContext());
+        final float keyWidth = dims.getFirst();
+        final float keyHeight = dims.getSecond();
+        
+        for (final var suggestion : sDictionaryFacilitator.getSuggestions(Arrays.asList(query.trim().split("\\s+")))) {
+            if (!suggestion.isEmoji()) continue;
+            final String emoji = EmojiParserKt.getEmojiDefaultVersion(suggestion.mWord);
+            final String popupSpec = EmojiParserKt.getEmojiPopupSpec(emoji);
+            final Key.KeyParams keyParams = new Key.KeyParams(
+                emoji, EmojiParserKt.getCode(emoji),
+                popupSpec != null ? EmojiParserKt.EMOJI_HINT_LABEL : null,
+                popupSpec, Key.LABEL_FLAGS_FONT_NORMAL, keyboardParams);
+            keyParams.mAbsoluteWidth = keyWidth;
+            keyParams.mAbsoluteHeight = keyHeight;
+            mSearchKeyboard.addKeyLast(keyParams.createKey());
+        }
+        
+        mSearchResultsView.setKeyboard(mSearchKeyboard);
+        mSearchResultsView.invalidate();
     }
 
     /**

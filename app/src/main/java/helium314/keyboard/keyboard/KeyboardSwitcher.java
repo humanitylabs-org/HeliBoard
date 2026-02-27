@@ -22,6 +22,7 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodSubtype;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -33,6 +34,7 @@ import helium314.keyboard.event.Event;
 import helium314.keyboard.keyboard.KeyboardLayoutSet.KeyboardLayoutSetException;
 import helium314.keyboard.keyboard.clipboard.ClipboardHistoryView;
 import helium314.keyboard.keyboard.emoji.EmojiPalettesView;
+import helium314.keyboard.keyboard.emoji.EmojiSearchPanel;
 import helium314.keyboard.keyboard.internal.KeyboardState;
 import helium314.keyboard.latin.InputView;
 import helium314.keyboard.latin.KeyboardWrapperView;
@@ -69,6 +71,9 @@ public final class KeyboardSwitcher implements KeyboardState.SwitchActions {
     private FrameLayout mStripContainer;
     private ClipboardHistoryView mClipboardHistoryView;
     private TextView mFakeToastView;
+    private EmojiSearchPanel mEmojiSearchPanel;
+    private LinearLayout mEmojiSearchPanelView;
+    private boolean mEmojiSearchMode = false;
     private LatinIME mLatinIME;
     private RichInputMethodManager mRichImm;
     private boolean mIsHardwareAcceleratedDrawingEnabled;
@@ -319,6 +324,8 @@ public final class KeyboardSwitcher implements KeyboardState.SwitchActions {
     private void setMainKeyboardFrame(
             @NonNull final SettingsValues settingsValues,
             @NonNull final KeyboardSwitchState toggleState) {
+        mEmojiSearchMode = false;
+        if (mEmojiSearchPanelView != null) mEmojiSearchPanelView.setVisibility(View.GONE);
         final int visibility = isImeSuppressedByHardwareKeyboard(settingsValues, toggleState) ? View.GONE : View.VISIBLE;
         final int stripVisibility = mLatinIME.hasSuggestionStripView()? View.VISIBLE : View.GONE;
         mStripContainer.setVisibility(stripVisibility);
@@ -356,6 +363,51 @@ public final class KeyboardSwitcher implements KeyboardState.SwitchActions {
         mEmojiPalettesView.startEmojiPalettes(mKeyboardView.getKeyVisualAttribute(),
                 mLatinIME.getCurrentInputEditorInfo(), mLatinIME.mKeyboardActionListener);
         mEmojiPalettesView.setVisibility(View.VISIBLE);
+    }
+
+    public void setEmojiSearchKeyboard() {
+        if (DEBUG_ACTION) {
+            Log.d(TAG, "setEmojiSearchKeyboard");
+        }
+        mEmojiSearchMode = true;
+        mMainKeyboardFrame.setVisibility(View.VISIBLE);
+        // Show QWERTY keyboard
+        mKeyboardView.setVisibility(View.VISIBLE);
+        PointerTracker.switchTo(mKeyboardView);
+        // Hide emoji panel and other overlays
+        mEmojiPalettesView.setVisibility(View.GONE);
+        mEmojiPalettesView.stopEmojiPalettes();
+        mClipboardHistoryView.setVisibility(View.GONE);
+        // Hide strip, show search panel
+        mStripContainer.setVisibility(View.GONE);
+        mEmojiTabStripView.setVisibility(View.GONE);
+        mSuggestionStripView.setVisibility(View.GONE);
+        mClipboardStripScrollView.setVisibility(View.GONE);
+        // Initialize and show emoji search panel
+        if (mEmojiSearchPanel == null) {
+            mEmojiSearchPanel = new EmojiSearchPanel(mThemeContext, mEmojiSearchPanelView, mLatinIME);
+        }
+        mEmojiSearchPanelView.setVisibility(View.VISIBLE);
+        mEmojiSearchPanel.enter();
+    }
+
+    public void exitEmojiSearch() {
+        if (!mEmojiSearchMode) return;
+        mEmojiSearchMode = false;
+        mEmojiSearchPanelView.setVisibility(View.GONE);
+        if (mEmojiSearchPanel != null) {
+            mEmojiSearchPanel.exit();
+        }
+        // Return to emoji keyboard
+        setEmojiKeyboard();
+    }
+
+    public boolean isEmojiSearchMode() {
+        return mEmojiSearchMode;
+    }
+
+    public EmojiSearchPanel getEmojiSearchPanel() {
+        return mEmojiSearchPanel;
     }
 
     // Implements {@link KeyboardState.SwitchActions}.
@@ -727,6 +779,7 @@ public final class KeyboardSwitcher implements KeyboardState.SwitchActions {
         mClipboardStripScrollView = mCurrentInputView.findViewById(R.id.clipboard_strip_scroll_view);
         mSuggestionStripView = mCurrentInputView.findViewById(R.id.suggestion_strip_view);
         mStripContainer = mCurrentInputView.findViewById(R.id.strip_container);
+        mEmojiSearchPanelView = mCurrentInputView.findViewById(R.id.emoji_search_panel);
 
         prefs.registerOnSharedPreferenceChangeListener(mSuggestionStripView);
         prefs.registerOnSharedPreferenceChangeListener(mClipboardHistoryView);
