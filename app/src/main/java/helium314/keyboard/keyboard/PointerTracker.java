@@ -1307,7 +1307,19 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
     }
 
     private void startKeyRepeatTimer(final int repeatCount) {
-        final int delay = (repeatCount == 1) ? sParams.mKeyRepeatStartTimeout : sParams.mKeyRepeatInterval;
+        int delay = (repeatCount == 1) ? sParams.mKeyRepeatStartTimeout : sParams.mKeyRepeatInterval;
+
+        // Slow down repeat rate when deleting whole words (backspace hold).
+        // Early repeats are much slower, then speed up gradually.
+        // Formula from Futo Keyboard: delay * (7/(repeatCount-1) + 1)
+        final Key key = getKey();
+        final helium314.keyboard.latin.settings.SettingsValues settingsValues =
+                helium314.keyboard.latin.settings.Settings.getValues();
+        if (key != null && key.getCode() == helium314.keyboard.keyboard.internal.keyboard_parser.floris.KeyCode.DELETE
+                && repeatCount > 1 && settingsValues != null && settingsValues.mDeleteWholeWords) {
+            delay = (int)((float)delay * (7.0f * (1.0f / ((float)(repeatCount - 1))) + 1.0f));
+        }
+
         sTimerProxy.startKeyRepeatTimerOf(this, repeatCount, delay);
     }
 

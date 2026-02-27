@@ -12,3 +12,5 @@ app/.cxx
 app/.attach_*
 fastlane/Appfile
 tools/*.txt
+heliboard-word-delete.apk
+*.idsig
