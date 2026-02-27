@@ -103,6 +103,8 @@ public final class InputAttributes {
                 || hasNoMicrophoneKeyOption()
                 || !RichInputMethodManager.isInitialized() // avoid crash when only using spell checker
                 || !RichInputMethodManager.getInstance().isShortcutImeReady();
+        // Show voice key if Android voice input is available OR if Whisper is configured
+        // (Whisper check deferred to SettingsValues to avoid context dependency here)
         mShouldShowVoiceInputKey = !noMicrophone;
 
         mDisableGestureFloatingPreviewText = InputAttributes.inPrivateImeOptions(

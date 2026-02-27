@@ -42,6 +42,7 @@ import helium314.keyboard.settings.preferences.ListPreference
 import helium314.keyboard.settings.preferences.Preference
 import helium314.keyboard.settings.preferences.SwitchPreference
 import helium314.keyboard.settings.preferences.SwitchPreferenceWithEmojiDictWarning
+import helium314.keyboard.settings.preferences.TextInputPreference
 import helium314.keyboard.settings.previewDark
 import androidx.core.content.edit
 
@@ -89,7 +90,13 @@ fun TextCorrectionScreen(
         Settings.PREF_USE_CONTACTS,
         Settings.PREF_USE_APPS,
         if (prefs.getBoolean(Settings.PREF_KEY_USE_PERSONALIZED_DICTS, Defaults.PREF_KEY_USE_PERSONALIZED_DICTS))
-            Settings.PREF_ADD_TO_PERSONAL_DICTIONARY else null
+            Settings.PREF_ADD_TO_PERSONAL_DICTIONARY else null,
+        R.string.settings_category_voice_input,
+        Settings.PREF_WHISPER_VOICE_INPUT,
+        if (prefs.getBoolean(Settings.PREF_WHISPER_VOICE_INPUT, Defaults.PREF_WHISPER_VOICE_INPUT))
+            Settings.PREF_WHISPER_SERVER_URL else null,
+        if (prefs.getBoolean(Settings.PREF_WHISPER_VOICE_INPUT, Defaults.PREF_WHISPER_VOICE_INPUT))
+            Settings.PREF_WHISPER_LANGUAGE else null,
     )
     SearchSettingsScreen(
         onClickBack = onClickBack,
@@ -259,6 +266,21 @@ fun createCorrectionSettings(context: Context) = listOf(
         R.string.add_to_personal_dictionary, R.string.add_to_personal_dictionary_summary
     ) {
         SwitchPreference(it, Defaults.PREF_ADD_TO_PERSONAL_DICTIONARY)
+    },
+    Setting(context, Settings.PREF_WHISPER_VOICE_INPUT,
+        R.string.whisper_voice_input, R.string.whisper_voice_input_summary
+    ) {
+        SwitchPreference(it, Defaults.PREF_WHISPER_VOICE_INPUT)
+    },
+    Setting(context, Settings.PREF_WHISPER_SERVER_URL,
+        R.string.whisper_server_url, R.string.whisper_server_url_summary
+    ) {
+        TextInputPreference(it, Defaults.PREF_WHISPER_SERVER_URL)
+    },
+    Setting(context, Settings.PREF_WHISPER_LANGUAGE,
+        R.string.whisper_language, R.string.whisper_language_summary
+    ) {
+        TextInputPreference(it, Defaults.PREF_WHISPER_LANGUAGE)
     },
 )
 

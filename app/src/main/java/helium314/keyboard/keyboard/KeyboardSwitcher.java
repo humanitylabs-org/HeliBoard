@@ -568,6 +568,34 @@ public final class KeyboardSwitcher implements KeyboardState.SwitchActions {
         return Settings.getValues().mSecondaryStripVisible? View.VISIBLE : View.GONE;
     }
 
+    /**
+     * Show a persistent or timed fake toast. If persistent=true, stays until dismissFakeToast() is called.
+     */
+    public void showFakeToast(final String text, final boolean persistent) {
+        if (mFakeToastView == null) return;
+        mFakeToastView.removeCallbacks(mFakeToastDismissRunnable);
+        final Drawable appIcon = mFakeToastView.getCompoundDrawables()[0];
+        if (appIcon != null) {
+            final int bound = mFakeToastView.getLineHeight();
+            appIcon.setBounds(0, 0, bound, bound);
+            mFakeToastView.setCompoundDrawables(appIcon, null, null, null);
+        }
+        mFakeToastView.setText(text);
+        if (mFakeToastView.getVisibility() != View.VISIBLE) {
+            mFakeToastView.setVisibility(View.VISIBLE);
+            mFakeToastView.bringToFront();
+            mFakeToastView.startAnimation(AnimationUtils.loadAnimation(mLatinIME, R.anim.fade_in));
+        }
+    }
+
+    private final Runnable mFakeToastDismissRunnable = () -> dismissFakeToast();
+
+    public void dismissFakeToast() {
+        if (mFakeToastView == null || mFakeToastView.getVisibility() != View.VISIBLE) return;
+        mFakeToastView.startAnimation(AnimationUtils.loadAnimation(mLatinIME, R.anim.fade_out));
+        mFakeToastView.setVisibility(View.GONE);
+    }
+
     // Displays a toast-like message with the provided text for a specified duration.
     private void showFakeToast(final String text, final int timeMillis) {
         if (mFakeToastView.getVisibility() == View.VISIBLE) return;

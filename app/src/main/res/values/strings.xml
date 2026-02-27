@@ -58,6 +58,20 @@
     <string name="settings_category_suggestions">Suggestions</string>
     <!-- Settings category title for Advanced/Experimental -->
     <string name="settings_category_experimental">Experimental</string>
+    <!-- Settings category title for Text correction/Voice input -->
+    <string name="settings_category_voice_input">Voice input</string>
+    <!-- Title for Whisper voice input toggle -->
+    <string name="whisper_voice_input">Use Whisper server for voice input</string>
+    <!-- Summary for Whisper voice input toggle -->
+    <string name="whisper_voice_input_summary">Use a self-hosted Whisper-compatible ASR server instead of Android voice input</string>
+    <!-- Title for Whisper server URL setting -->
+    <string name="whisper_server_url">Whisper server URL</string>
+    <!-- Summary for Whisper server URL setting -->
+    <string name="whisper_server_url_summary">Full URL including endpoint (e.g. http://192.168.1.100:9000/inference)</string>
+    <!-- Title for Whisper language setting -->
+    <string name="whisper_language">Language</string>
+    <!-- Summary for Whisper language setting -->
+    <string name="whisper_language_summary">Speech recognition language code (e.g. en, de, fr)</string>
     <!-- Settings category title for Appearance & Layout/Misc -->
     <string name="settings_category_miscellaneous">Miscellaneous</string>
     <!--  Option for enabling or disabling the split keyboard layout in portrait mode.-->

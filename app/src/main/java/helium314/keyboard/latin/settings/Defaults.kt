@@ -56,6 +56,9 @@ object Defaults {
     const val PREF_SOUND_ON = false
     const val PREF_SUGGEST_EMOJIS = true
     const val PREF_INLINE_EMOJI_SEARCH = true
+    const val PREF_WHISPER_VOICE_INPUT = false
+    const val PREF_WHISPER_SERVER_URL = ""
+    const val PREF_WHISPER_LANGUAGE = "en"
     const val PREF_SHOW_EMOJI_DESCRIPTIONS = true
     @JvmField
     var PREF_POPUP_ON = true

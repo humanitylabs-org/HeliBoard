@@ -181,7 +181,8 @@ public class SettingsValues {
         mKeyPreviewPopupOn = prefs.getBoolean(Settings.PREF_POPUP_ON, Defaults.PREF_POPUP_ON);
         mSlidingKeyInputPreviewEnabled = prefs.getBoolean(
                 DebugSettings.PREF_SLIDING_KEY_INPUT_PREVIEW, Defaults.PREF_SLIDING_KEY_INPUT_PREVIEW);
-        mShowsVoiceInputKey = mInputAttributes.mShouldShowVoiceInputKey;
+        mShowsVoiceInputKey = mInputAttributes.mShouldShowVoiceInputKey
+                || prefs.getBoolean(Settings.PREF_WHISPER_VOICE_INPUT, Defaults.PREF_WHISPER_VOICE_INPUT);
         final String languagePref = prefs.getString(Settings.PREF_LANGUAGE_SWITCH_KEY, Defaults.PREF_LANGUAGE_SWITCH_KEY);
         mLanguageSwitchKeyToOtherImes = languagePref.equals("input_method") || languagePref.equals("both");
         mLanguageSwitchKeyToOtherSubtypes = languagePref.equals("internal") || languagePref.equals("both");

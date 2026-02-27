@@ -11,6 +11,9 @@ import android.app.AlertDialog;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.os.Handler;
+import android.os.Looper;
 import android.content.IntentFilter;
 import android.content.res.Configuration;
 import android.content.res.Resources;
@@ -137,6 +140,7 @@ public class LatinIME extends InputMethodService implements
     private SuggestionStripView mSuggestionStripView;
 
     private RichInputMethodManager mRichImm;
+    private WhisperVoiceInput mWhisperVoiceInput;
     final KeyboardSwitcher mKeyboardSwitcher;
     private final SubtypeState mSubtypeState = new SubtypeState((InputMethodSubtype subtype) -> { switchToSubtype(subtype); return Unit.INSTANCE; });
     private final StatsUtilsManager mStatsUtilsManager;
@@ -1390,6 +1394,10 @@ public class LatinIME extends InputMethodService implements
     // completely replace #onCodeInput.
     public void onEvent(@NonNull final Event event) {
         if (KeyCode.VOICE_INPUT == event.getKeyCode()) {
+            if (isWhisperVoiceInputEnabled()) {
+                handleWhisperVoiceInput();
+                return;
+            }
             mRichImm.switchToShortcutIme(this);
         }
         final InputTransaction completeInputTransaction =
@@ -1838,5 +1846,42 @@ public class LatinIME extends InputMethodService implements
             }
             // deallocateMemory always called on hiding, and should not be called when showing
         }
+    }
+
+    // --- Whisper Voice Input ---
+
+    private boolean isWhisperVoiceInputEnabled() {
+        SharedPreferences prefs = helium314.keyboard.latin.utils.DeviceProtectedUtils.getSharedPreferences(this);
+        return prefs.getBoolean(Settings.PREF_WHISPER_VOICE_INPUT, false);
+    }
+
+    private void handleWhisperVoiceInput() {
+        if (mWhisperVoiceInput == null) {
+            mWhisperVoiceInput = new WhisperVoiceInput(this);
+            mWhisperVoiceInput.setCallback(new WhisperVoiceInput.Callback() {
+                @Override
+                public void onStateChanged(WhisperVoiceInput.State state) {
+                    switch (state) {
+                        case RECORDING:
+                            mKeyboardSwitcher.showFakeToast("● Recording...", true);
+                            break;
+                        case PROCESSING:
+                            mKeyboardSwitcher.showFakeToast("Transcribing...", true);
+                            break;
+                        case IDLE:
+                            mKeyboardSwitcher.dismissFakeToast();
+                            break;
+                    }
+                }
+
+                @Override
+                public void onError(String message) {
+                    mKeyboardSwitcher.showFakeToast("Error: " + message, false);
+                    new Handler(Looper.getMainLooper()).postDelayed(() ->
+                        mKeyboardSwitcher.dismissFakeToast(), 2000);
+                }
+            });
+        }
+        mWhisperVoiceInput.toggle();
     }
 }
