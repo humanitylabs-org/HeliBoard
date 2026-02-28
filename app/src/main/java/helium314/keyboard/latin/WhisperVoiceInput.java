@@ -61,7 +61,7 @@ public class WhisperVoiceInput {
     private volatile State mState = State.IDLE;
     private Callback mCallback;
     private byte[] mLastWavData;  // Retained on failure for retry
-    private long mLastFailedTapTime = 0;  // For double-tap-to-cancel
+    private int mManualRetryCount = 0;  // Track manual retries
 
     public WhisperVoiceInput(LatinIME latinIME) {
         mLatinIME = latinIME;
@@ -80,17 +80,16 @@ public class WhisperVoiceInput {
      */
     public void toggle() {
         if (mState == State.IDLE) {
+            mManualRetryCount = 0;
             startRecording();
         } else if (mState == State.RECORDING) {
             stopRecordingAndTranscribe();
-        } else if (mState == State.FAILED && mLastWavData != null) {
-            // Tap while failed = retry transcription
+        } else if (mState == State.FAILED && mLastWavData != null && mManualRetryCount < 2) {
+            // First 2 taps on failed = retry
+            mManualRetryCount++;
             retryTranscription();
-        } else if (mState == State.FAILED) {
-            // Failed with no saved data — just reset
-            setState(State.IDLE);
-        } else if (mState == State.PROCESSING) {
-            // Tap while processing = cancel and go idle
+        } else if (mState == State.FAILED || mState == State.PROCESSING) {
+            // 3rd tap on failed, or tap during processing, or no saved data = cancel
             cancel();
         }
     }

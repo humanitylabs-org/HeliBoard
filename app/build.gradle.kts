@@ -14,7 +14,7 @@ android {
         applicationId = "org.humanitylabs.keyboard"
         minSdk = 21
         targetSdk = 35
-        versionCode = 3729
+        versionCode = 3730
         versionName = "3.7-beta1-whisper1"
         ndk {
             abiFilters.clear()
