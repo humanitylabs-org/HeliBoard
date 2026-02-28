@@ -84,17 +84,13 @@ public class WhisperVoiceInput {
         } else if (mState == State.RECORDING) {
             stopRecordingAndTranscribe();
         } else if (mState == State.FAILED && mLastWavData != null) {
-            // Single tap = retry, double tap (within 500ms) = cancel
-            long now = System.currentTimeMillis();
-            if (now - mLastFailedTapTime < 500) {
-                cancel();
-                mLastFailedTapTime = 0;
-            } else {
-                mLastFailedTapTime = now;
-                retryTranscription();
-            }
+            // Tap while failed = retry transcription
+            retryTranscription();
+        } else if (mState == State.FAILED) {
+            // Failed with no saved data — just reset
+            setState(State.IDLE);
         } else if (mState == State.PROCESSING) {
-            // Tap while processing = cancel
+            // Tap while processing = cancel and go idle
             cancel();
         }
     }
