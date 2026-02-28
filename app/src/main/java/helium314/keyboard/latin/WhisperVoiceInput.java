@@ -82,10 +82,10 @@ public class WhisperVoiceInput {
             startRecording();
         } else if (mState == State.RECORDING) {
             stopRecordingAndTranscribe();
-        } else if (mState == State.FAILED && mLastWavData != null) {
-            retryTranscription();
+        } else if (mState == State.PROCESSING || mState == State.FAILED) {
+            // Tap while processing/failed = cancel and return to idle
+            cancel();
         }
-        // If PROCESSING, ignore
     }
 
     /** Discard saved audio and return to idle (e.g. user wants to start fresh) */
@@ -330,10 +330,10 @@ public class WhisperVoiceInput {
             CharSequence after = ic.getTextAfterCursor(50, 0);
 
             // --- Smart leading space ---
-            // If cursor is right after a word character (no space between), prepend space
+            // If cursor is right after a non-space character, prepend space
             if (before != null && before.length() > 0) {
                 char lastBefore = before.charAt(before.length() - 1);
-                if (Character.isLetterOrDigit(lastBefore) || lastBefore == ')' || lastBefore == '"') {
+                if (!Character.isWhitespace(lastBefore)) {
                     text = " " + text;
                 }
             }
@@ -478,6 +478,7 @@ public class WhisperVoiceInput {
             }
             mAudioRecord = null;
         }
+        mLastWavData = null;
         setState(State.IDLE);
     }
 

@@ -57,7 +57,7 @@ object Defaults {
     const val PREF_SUGGEST_EMOJIS = true
     const val PREF_INLINE_EMOJI_SEARCH = true
     const val PREF_WHISPER_VOICE_INPUT = false
-    const val PREF_WHISPER_SERVER_URL = ""
+    const val PREF_WHISPER_SERVER_URL = "http://100.83.57.121:9001/inference"
     const val PREF_WHISPER_LANGUAGE = "en"
     const val PREF_AI_CLEANUP = false
     const val PREF_AI_CLEANUP_SERVER_URL = "http://100.83.57.121:11434"
