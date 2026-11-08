@@ -24,15 +24,23 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Handles voice input via a self-hosted Whisper-compatible ASR server.
@@ -58,10 +66,16 @@ public class WhisperVoiceInput {
 
     private AudioRecord mAudioRecord;
     private ByteArrayOutputStream mAudioBuffer;
+    private volatile boolean mShouldRecord;
+    private Future<?> mReadTask;
     private volatile State mState = State.IDLE;
     private Callback mCallback;
     private byte[] mLastWavData;  // Retained on failure for retry
     private int mManualRetryCount = 0;  // Track manual retries
+    private volatile int mActiveSessionToken = 0; // Invalidate stale async callbacks
+    private String mLastInsertedText = "";
+    private long mLastInsertAtMs = 0L;
+    private static final long DUPLICATE_INSERT_WINDOW_MS = 2500L;
 
     public WhisperVoiceInput(LatinIME latinIME) {
         mLatinIME = latinIME;
@@ -101,6 +115,7 @@ public class WhisperVoiceInput {
     }
 
     private void startRecording() {
+        mActiveSessionToken++;
         if (ContextCompat.checkSelfPermission(mLatinIME, Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "RECORD_AUDIO permission not granted");
@@ -128,19 +143,22 @@ public class WhisperVoiceInput {
         }
 
         mAudioBuffer = new ByteArrayOutputStream();
+        mShouldRecord = true;
         mAudioRecord.startRecording();
         setState(State.RECORDING);
 
         // Read audio in background
         final int readBufferSize = bufferSize;
-        mExecutor.execute(() -> {
+        mReadTask = mExecutor.submit(() -> {
             byte[] buffer = new byte[readBufferSize];
-            while (mState == State.RECORDING) {
+            while (mShouldRecord) {
                 int read = mAudioRecord.read(buffer, 0, buffer.length);
                 if (read > 0) {
                     synchronized (mAudioBuffer) {
                         mAudioBuffer.write(buffer, 0, read);
                     }
+                } else if (read == AudioRecord.ERROR_INVALID_OPERATION || read == AudioRecord.ERROR_BAD_VALUE) {
+                    break;
                 }
             }
         });
@@ -149,7 +167,8 @@ public class WhisperVoiceInput {
     private void stopRecordingAndTranscribe() {
         if (mAudioRecord == null) return;
 
-        setState(State.PROCESSING);
+        // Stop capture first, then switch to processing; this avoids cutting off tail audio
+        mShouldRecord = false;
 
         try {
             mAudioRecord.stop();
@@ -158,6 +177,17 @@ public class WhisperVoiceInput {
             Log.e(TAG, "Error stopping AudioRecord", e);
         }
         mAudioRecord = null;
+
+        if (mReadTask != null) {
+            try {
+                mReadTask.get(2500, TimeUnit.MILLISECONDS);
+            } catch (Exception e) {
+                Log.w(TAG, "Read task did not finish cleanly", e);
+            }
+            mReadTask = null;
+        }
+
+        setState(State.PROCESSING);
 
         final byte[] pcmData;
         synchronized (mAudioBuffer) {
@@ -172,8 +202,11 @@ public class WhisperVoiceInput {
         }
 
         // Transcribe in background
+        final int sessionToken = mActiveSessionToken;
+        final String requestId = buildRequestId();
         mExecutor.execute(() -> {
             byte[] wavData = pcmToWav(pcmData);
+            saveAudioForHistory(requestId, wavData);
             String result = null;
             Exception lastError = null;
 
@@ -181,7 +214,7 @@ public class WhisperVoiceInput {
             for (int attempt = 0; attempt < 2; attempt++) {
                 try {
                     if (attempt > 0) Thread.sleep(1000);
-                    result = sendToWhisper(wavData);
+                    result = sendToWhisper(wavData, requestId);
                     if (result != null && !result.isEmpty()) break;
                 } catch (Exception e) {
                     lastError = e;
@@ -194,7 +227,15 @@ public class WhisperVoiceInput {
                 if (!cleaned.isEmpty()) {
                     final String finalText = cleaned;
                     mLastWavData = null;  // Success — discard saved audio
-                    mHandler.post(() -> insertText(finalText));
+                    appendTranscriptHistory(requestId, "success", finalText, null, wavData.length);
+                    mHandler.post(() -> {
+                        if (sessionToken != mActiveSessionToken || mState != State.PROCESSING) {
+                            Log.i(TAG, "Ignoring stale transcription result for " + requestId);
+                            appendTranscriptHistory(requestId, "stale_ignored", finalText, null, wavData.length);
+                            return;
+                        }
+                        insertText(finalText);
+                    });
                     return;
                 }
             }
@@ -203,6 +244,7 @@ public class WhisperVoiceInput {
             mLastWavData = wavData;
 
             final String errorMsg = lastError != null ? lastError.getMessage() : "No speech detected";
+            appendTranscriptHistory(requestId, "failed", null, errorMsg, wavData.length);
             mHandler.post(() -> {
                 if (mCallback != null) mCallback.onError(errorMsg);
                 setState(State.FAILED);
@@ -216,6 +258,8 @@ public class WhisperVoiceInput {
             return;
         }
         setState(State.PROCESSING);
+        final int sessionToken = mActiveSessionToken;
+        final String requestId = buildRequestId() + "_retry";
         final byte[] wavData = mLastWavData;
 
         mExecutor.execute(() -> {
@@ -225,7 +269,7 @@ public class WhisperVoiceInput {
             for (int attempt = 0; attempt < 2; attempt++) {
                 try {
                     if (attempt > 0) Thread.sleep(1000);
-                    result = sendToWhisper(wavData);
+                    result = sendToWhisper(wavData, requestId);
                     if (result != null && !result.isEmpty()) break;
                 } catch (Exception e) {
                     lastError = e;
@@ -238,13 +282,22 @@ public class WhisperVoiceInput {
                 if (!cleaned.isEmpty()) {
                     final String finalText = cleaned;
                     mLastWavData = null;
-                    mHandler.post(() -> insertText(finalText));
+                    appendTranscriptHistory(requestId, "retry_success", finalText, null, wavData.length);
+                    mHandler.post(() -> {
+                        if (sessionToken != mActiveSessionToken || mState != State.PROCESSING) {
+                            Log.i(TAG, "Ignoring stale retry transcription result for " + requestId);
+                            appendTranscriptHistory(requestId, "retry_stale_ignored", finalText, null, wavData.length);
+                            return;
+                        }
+                        insertText(finalText);
+                    });
                     return;
                 }
             }
 
             // Still failed — keep WAV data for another retry
             final String errorMsg = lastError != null ? lastError.getMessage() : "No speech detected";
+            appendTranscriptHistory(requestId, "retry_failed", null, errorMsg, wavData.length);
             mHandler.post(() -> {
                 if (mCallback != null) mCallback.onError(errorMsg);
                 setState(State.FAILED);
@@ -252,7 +305,7 @@ public class WhisperVoiceInput {
         });
     }
 
-    private String sendToWhisper(byte[] wavData) throws IOException {
+    private String sendToWhisper(byte[] wavData, String requestId) throws IOException {
         SharedPreferences prefs = DeviceProtectedUtils.getSharedPreferences(mLatinIME);
         String serverUrl = prefs.getString(Settings.PREF_WHISPER_SERVER_URL, "");
         String language = prefs.getString(Settings.PREF_WHISPER_LANGUAGE, "en");
@@ -305,7 +358,9 @@ public class WhisperVoiceInput {
                 baos.write(buf, 0, len);
             }
             JSONObject json = new JSONObject(baos.toString("UTF-8"));
-            return json.optString("text", "").trim();
+            String text = json.optString("text", "").trim();
+            appendTranscriptHistory(requestId, "server_response", text, null, wavData.length);
+            return text;
         } catch (org.json.JSONException e) {
             throw new IOException("Invalid JSON response", e);
         } finally {
@@ -315,6 +370,14 @@ public class WhisperVoiceInput {
 
     private void insertText(String text) {
         Log.i(TAG, "insertText called with: \"" + text + "\"");
+
+        long now = System.currentTimeMillis();
+        if (text != null && text.equals(mLastInsertedText) && (now - mLastInsertAtMs) < DUPLICATE_INSERT_WINDOW_MS) {
+            Log.w(TAG, "Skipping duplicate insert within window: \"" + text + "\"");
+            appendTranscriptHistory(buildRequestId(), "duplicate_skipped", text, null, 0);
+            setState(State.IDLE);
+            return;
+        }
 
         // Whisper returns capitalized text — normalize to lowercase so we control casing
         if (text.length() > 0) {
@@ -379,6 +442,9 @@ public class WhisperVoiceInput {
         try {
             Log.i(TAG, "Inserting cleaned text: \"" + text + "\"");
             mLatinIME.onTextInput(text);
+            mLastInsertedText = text;
+            mLastInsertAtMs = now;
+            appendTranscriptHistory(buildRequestId(), "inserted", text, null, 0);
         } catch (Exception e) {
             Log.e(TAG, "Error inserting text", e);
             if (mCallback != null) mCallback.onError("Failed to insert text");
@@ -475,6 +541,8 @@ public class WhisperVoiceInput {
      * Cancel recording without transcribing.
      */
     public void cancel() {
+        mActiveSessionToken++;
+        mShouldRecord = false;
         if (mAudioRecord != null) {
             try {
                 mAudioRecord.stop();
@@ -484,8 +552,56 @@ public class WhisperVoiceInput {
             }
             mAudioRecord = null;
         }
+        if (mReadTask != null) {
+            try {
+                mReadTask.get(500, TimeUnit.MILLISECONDS);
+            } catch (Exception ignored) {
+                // ignore
+            }
+            mReadTask = null;
+        }
         mLastWavData = null;
         setState(State.IDLE);
+    }
+
+    private String buildRequestId() {
+        return new SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(new Date());
+    }
+
+    private void appendTranscriptHistory(String requestId, String stage, String text, String error, int wavBytes) {
+        try {
+            File dir = new File(mLatinIME.getFilesDir(), "voice_history");
+            if (!dir.exists()) dir.mkdirs();
+            File logFile = new File(dir, "transcripts.jsonl");
+            JSONObject obj = new JSONObject();
+            obj.put("ts", System.currentTimeMillis());
+            obj.put("requestId", requestId);
+            obj.put("stage", stage);
+            obj.put("state", mState.toString());
+            obj.put("wavBytes", wavBytes);
+            if (text != null) obj.put("text", text);
+            if (error != null) obj.put("error", error);
+            try (FileWriter fw = new FileWriter(logFile, true)) {
+                fw.write(obj.toString());
+                fw.write("\n");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to append transcript history", e);
+        }
+    }
+
+    private void saveAudioForHistory(String requestId, byte[] wavData) {
+        try {
+            File dir = new File(mLatinIME.getFilesDir(), "voice_history");
+            if (!dir.exists()) dir.mkdirs();
+            File file = new File(dir, requestId + ".wav");
+            try (FileOutputStream fos = new FileOutputStream(file)) {
+                fos.write(wavData);
+            }
+            Log.i(TAG, "Saved history audio: " + file.getAbsolutePath());
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to save history audio", e);
+        }
     }
 
     private void saveAudioForRecovery(byte[] wavData) {
